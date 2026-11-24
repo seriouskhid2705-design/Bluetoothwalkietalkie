@@ -1,0 +1,44 @@
+name: Build Android test APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Build the debug APK
+        run: gradle --stacktrace :app:assembleDebug
+      - name: Verify the Android package and signature
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp app/build/outputs/apk/debug/app-debug.apk BluetoothRadio.apk
+          signer=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
+          "$signer" verify --verbose --print-certs BluetoothRadio.apk
+          "$(dirname "$signer")/aapt" dump badging BluetoothRadio.apk > apk-badging.txt
+          grep -F "package: name='local.bluetoothradio'" apk-badging.txt
+          grep -F "launchable-activity: name='local.radio.RadioActivity'" apk-badging.txt
+          grep -F "uses-permission: name='android.permission.RECORD_AUDIO'" apk-badging.txt
+          grep -F "uses-permission: name='android.permission.BLUETOOTH_CONNECT'" apk-badging.txt
+          if grep -Fq "android.permission.INTERNET" apk-badging.txt; then exit 1; fi
+          sha256sum BluetoothRadio.apk
+      - uses: actions/upload-artifact@v7
+        with:
+          path: BluetoothRadio.apk
+          archive: false
+          if-no-files-found: error
